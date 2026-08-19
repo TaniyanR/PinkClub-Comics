@@ -8,22 +8,10 @@ require_once __DIR__ . '/partials/public_ui.php';
 
 $type = strtolower(trim((string)get('type', 'comic')));
 $catalogs = [
-    'comic' => [
-        'label' => 'コミック',
-        'floors' => ['comic'],
-    ],
-    'bl' => [
-        'label' => 'BL',
-        'floors' => ['bl'],
-    ],
-    'tl' => [
-        'label' => 'TL',
-        'floors' => ['tl'],
-    ],
-    'unlimited' => [
-        'label' => '読み放題',
-        'floors' => ['unlimited', 'unlimited_comic'],
-    ],
+    'comic' => ['label' => 'コミック', 'floors' => ['comic']],
+    'bl' => ['label' => 'BL', 'floors' => ['bl']],
+    'tl' => ['label' => 'TL', 'floors' => ['tl']],
+    'unlimited' => ['label' => '読み放題', 'floors' => ['unlimited', 'unlimited_comic']],
 ];
 if (!isset($catalogs[$type])) {
     $type = 'comic';
@@ -97,11 +85,6 @@ if ($page < (int)($pg['pages'] ?? 1)) {
 
 require __DIR__ . '/partials/header.php';
 ?>
-<?php pcf_render_breadcrumbs([
-    ['label' => 'トップ', 'url' => public_url('index.php')],
-    ['label' => $catalog['label']],
-]); ?>
-
 <?php pcf_render_hero($catalog['label'], '表紙・作者・価格を中心に作品を探せます。'); ?>
 
 <?php if ($items !== []): ?>
