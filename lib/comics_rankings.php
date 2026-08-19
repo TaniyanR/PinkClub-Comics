@@ -26,8 +26,11 @@ function pcf_comics_scoped_ranking(string $scopeType, string $scopeValue, string
     if ($scopeValue === '' || !in_array($scopeType, ['floor', 'author', 'genre', 'series'], true)) {
         return [];
     }
+    if (!db_table_exists('page_views')) {
+        return [];
+    }
 
-    $cacheKey = 'comics.ranking.' . hash('sha256', $scopeType . '|' . mb_strtolower($scopeValue, 'UTF-8') . '|' . $period . '|' . $limit);
+    $cacheKey = 'comics.ranking.v2.' . hash('sha256', $scopeType . '|' . mb_strtolower($scopeValue, 'UTF-8') . '|' . $period . '|' . $limit);
     try {
         $cached = json_decode((string)(setting_get($cacheKey, '') ?? ''), true);
         if (is_array($cached)
@@ -41,22 +44,28 @@ function pcf_comics_scoped_ranking(string $scopeType, string $scopeValue, string
     $joins = '';
     $scopeSql = '';
     $periodStart = pcf_comics_ranking_period_start($period);
-    $params = [
-        ':page_view_from' => $periodStart,
-        ':out_click_from' => $periodStart,
-    ];
+    $params = [':page_view_from' => $periodStart];
 
     if ($scopeType === 'author') {
+        if (!db_table_exists('item_authors')) {
+            return [];
+        }
         $joins = ' INNER JOIN item_authors scope_relation ON scope_relation.item_id = i.id ';
         $scopeSql = ' AND (scope_relation.dmm_id = :scope_dmm OR scope_relation.author_name = :scope_name) ';
         $params[':scope_dmm'] = $scopeValue;
         $params[':scope_name'] = $scopeValue;
     } elseif ($scopeType === 'genre') {
+        if (!db_table_exists('item_genres')) {
+            return [];
+        }
         $joins = ' INNER JOIN item_genres scope_relation ON scope_relation.item_id = i.id ';
         $scopeSql = ' AND (scope_relation.dmm_id = :scope_dmm OR scope_relation.genre_name = :scope_name) ';
         $params[':scope_dmm'] = $scopeValue;
         $params[':scope_name'] = $scopeValue;
     } elseif ($scopeType === 'series') {
+        if (!db_table_exists('item_series')) {
+            return [];
+        }
         $joins = ' INNER JOIN item_series scope_relation ON scope_relation.item_id = i.id ';
         $scopeSql = ' AND (scope_relation.dmm_id = :scope_dmm OR scope_relation.series_name = :scope_name) ';
         $params[':scope_dmm'] = $scopeValue;
@@ -75,12 +84,27 @@ function pcf_comics_scoped_ranking(string $scopeType, string $scopeValue, string
         }
     }
 
+    $hasOutClicks = db_table_exists('item_out_click_daily');
+    if ($hasOutClicks) {
+        $params[':out_click_from'] = $periodStart;
+        $outJoinSql = 'LEFT JOIN (
+                SELECT item_id, COUNT(*) AS out_click_count
+                FROM item_out_click_daily
+                WHERE clicked_at >= :out_click_from
+                GROUP BY item_id
+            ) oc ON oc.item_id = i.id';
+        $outCountSql = 'COALESCE(oc.out_click_count, 0)';
+    } else {
+        $outJoinSql = '';
+        $outCountSql = '0';
+    }
+
     $sql = 'SELECT DISTINCT i.id, i.content_id, i.title, i.floor_code, i.floor_name,
                    i.service_code, i.release_date, i.image_small, i.image_large,
                    i.image_list, i.price_min_text, i.raw_json,
                    COALESCE(pv.page_view_count, 0) AS page_view_count,
-                   COALESCE(oc.out_click_count, 0) AS out_click_count,
-                   COALESCE(pv.page_view_count, 0) + (COALESCE(oc.out_click_count, 0) * 3) AS access_count
+                   ' . $outCountSql . ' AS out_click_count,
+                   COALESCE(pv.page_view_count, 0) + (' . $outCountSql . ' * 3) AS access_count
             FROM items i
             ' . $joins . '
             LEFT JOIN (
@@ -89,14 +113,9 @@ function pcf_comics_scoped_ranking(string $scopeType, string $scopeValue, string
                 WHERE viewed_at >= :page_view_from
                 GROUP BY item_id
             ) pv ON pv.item_id = i.id
-            LEFT JOIN (
-                SELECT item_id, COUNT(*) AS out_click_count
-                FROM item_out_click_daily
-                WHERE clicked_at >= :out_click_from
-                GROUP BY item_id
-            ) oc ON oc.item_id = i.id
+            ' . $outJoinSql . '
             WHERE ' . items_product_source_where('i') . '
-              AND (COALESCE(pv.page_view_count, 0) > 0 OR COALESCE(oc.out_click_count, 0) > 0)
+              AND (COALESCE(pv.page_view_count, 0) > 0 OR ' . $outCountSql . ' > 0)
               ' . $scopeSql . '
             ORDER BY access_count DESC, out_click_count DESC, i.id DESC
             LIMIT ' . $limit;
