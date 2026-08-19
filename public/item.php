@@ -56,9 +56,9 @@ function comics_item_named_rows(string $kind, int $itemId): array
         $stmt->bindValue(':item_id', $itemId, PDO::PARAM_INT);
         $stmt->execute();
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-        if ($rows !== []) {
-            return array_values(array_filter($rows, static fn(array $v): bool => trim((string)($v['name'] ?? '')) !== ''));
+        $masterRows = array_values(array_filter($rows, static fn(array $v): bool => trim((string)($v['name'] ?? '')) !== ''));
+        if ($masterRows !== []) {
+            return $masterRows;
         }
 
         $fallback = db()->prepare(
@@ -143,13 +143,13 @@ function comics_item_render_ranking(string $heading, array $rows): void
             continue;
         }
         $id = (int)($row['id'] ?? 0);
-        $title = trim((string)($row['title'] ?? ''));
-        if ($id <= 0 || $title === '') {
+        $rankingTitle = trim((string)($row['title'] ?? ''));
+        if ($id <= 0 || $rankingTitle === '') {
             continue;
         }
         echo '<li style="display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #eee;">';
         echo '<strong style="text-align:center;font-size:18px;">' . e((string)($index + 1)) . '</strong>';
-        echo '<a href="' . e(public_url('item.php?id=' . $id)) . '">' . e($title) . '</a>';
+        echo '<a href="' . e(public_url('item.php?id=' . $id)) . '">' . e($rankingTitle) . '</a>';
         echo '<span style="font-size:12px;white-space:nowrap;">' . e(number_format((int)($row['access_count'] ?? 0))) . ' pt</span>';
         echo '</li>';
     }
