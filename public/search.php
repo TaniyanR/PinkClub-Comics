@@ -15,11 +15,11 @@ $total = 0;
 
 if ($query !== '') {
     try {
-        $like = '%' . addcslashes($query, '\\%_') . '%';
+        $like = '%' . $query . '%';
         $where = items_product_source_where('i') . '
             AND (
-                i.title LIKE :title_query ESCAPE "\\\\"
-                OR i.raw_json LIKE :raw_query ESCAPE "\\\\"
+                i.title LIKE :title_query
+                OR i.raw_json LIKE :raw_query
                 OR i.content_id = :content_id
                 OR i.product_id = :product_id
             )';
