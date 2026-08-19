@@ -100,14 +100,18 @@ if (!function_exists('pcf_render_item_card')) {
             $title = 'タイトル未設定';
         }
 
-        $imageUrl = function_exists('pcf_item_image') ? trim(pcf_item_image($item)) : trim((string)($item['image_large'] ?? $item['image_small'] ?? ''));
-        if ($preferFullPackageImage) {
+        $imageUrl = function_exists('pcf_item_image') ? trim(pcf_item_image($item)) : '';
+        if ($imageUrl === '') {
             foreach ([(string)($item['image_large'] ?? ''), (string)($item['image_small'] ?? '')] as $candidate) {
                 $candidate = trim($candidate);
-                if ($candidate !== '') {
-                    $imageUrl = $candidate;
-                    break;
+                if ($candidate === '') {
+                    continue;
                 }
+                if (function_exists('pcf_is_self_hosted_fanza_image_url') && pcf_is_self_hosted_fanza_image_url($candidate)) {
+                    continue;
+                }
+                $imageUrl = $candidate;
+                break;
             }
         }
 
