@@ -11,59 +11,47 @@ function scheduler_tick(): array
     scheduler_seed_default_schedules($pdo);
     scheduler_apply_auto_settings($pdo);
 
-    $stmt = $pdo->query("SELECT * FROM api_schedules WHERE is_enabled = 1 AND schedule_type IN ('items','actresses') ORDER BY COALESCE(last_run_at, '1970-01-01 00:00:00') ASC, FIELD(schedule_type, 'items','actresses')");
-    $schedules = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
-    $jobs = [];
-    foreach ($schedules as $schedule) {
-        if (!scheduler_is_due($schedule)) {
-            continue;
-        }
-        $scheduleType = (string)$schedule['schedule_type'];
-        $lockUntil = date('Y-m-d H:i:s', time() + ($scheduleType === 'items' ? 300 : 55));
-        $locked = $pdo->prepare('UPDATE api_schedules SET lock_until = :lock_until WHERE id = :id AND (lock_until IS NULL OR lock_until < NOW())');
-        $locked->execute(['lock_until' => $lockUntil, 'id' => $schedule['id']]);
-        if ($locked->rowCount() === 0) {
-            $jobs[] = ['schedule_type' => $scheduleType, 'status' => 'skipped', 'synced_count' => 0, 'message' => 'ロック取得失敗のためスキップ'];
-            continue;
-        }
-
-        try {
-            $result = scheduler_run_schedule($schedule);
-            $jobStatus = scheduler_schedule_result_status($result);
-            // Record every acquired execution attempt so one unhealthy job cannot starve the other.
-            $pdo->prepare('UPDATE api_schedules SET last_run_at = NOW(), lock_until = NULL WHERE id = ?')->execute([$schedule['id']]);
-            $jobs[] = array_merge(['schedule_type' => $scheduleType, 'status' => $jobStatus], $result);
-            break;
-        } catch (Throwable $e) {
-            $pdo->prepare('UPDATE api_schedules SET last_run_at = NOW(), lock_until = NULL WHERE id = ?')->execute([$schedule['id']]);
-            $jobs[] = ['schedule_type' => $scheduleType, 'status' => 'error', 'synced_count' => 0, 'message' => $e->getMessage()];
-            break;
-        }
+    $stmt = $pdo->query("SELECT * FROM api_schedules WHERE is_enabled = 1 AND schedule_type = 'items' ORDER BY COALESCE(last_run_at, '1970-01-01 00:00:00') ASC");
+    $schedule = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : false;
+    if (!$schedule || !scheduler_is_due($schedule)) {
+        return ['status' => 'idle', 'message' => '実行対象なし', 'jobs' => []];
     }
 
-    if ($jobs !== []) {
-        $hasError = false;
-        $hasSuccess = false;
-        $syncedCount = 0;
-        foreach ($jobs as $job) {
-            if (($job['status'] ?? '') === 'error') {
-                $hasError = true;
-            }
-            if (($job['status'] ?? '') === 'success') {
-                $hasSuccess = true;
-            }
-            $syncedCount += (int)($job['synced_count'] ?? 0);
-        }
+    $lockUntil = date('Y-m-d H:i:s', time() + 300);
+    $locked = $pdo->prepare('UPDATE api_schedules SET lock_until = :lock_until WHERE id = :id AND (lock_until IS NULL OR lock_until < NOW())');
+    $locked->execute([':lock_until' => $lockUntil, ':id' => $schedule['id']]);
+    if ($locked->rowCount() === 0) {
         return [
-            'status' => $hasError ? 'error' : ($hasSuccess ? 'ran' : 'idle'),
-            'schedule_type' => (string)($jobs[0]['schedule_type'] ?? ''),
-            'synced_count' => $syncedCount,
-            'message' => scheduler_jobs_message($jobs),
-            'jobs' => $jobs,
+            'status' => 'idle',
+            'schedule_type' => 'items',
+            'synced_count' => 0,
+            'message' => '商品: ロック取得失敗のためスキップ',
+            'jobs' => [['schedule_type' => 'items', 'status' => 'skipped', 'synced_count' => 0, 'message' => 'ロック取得失敗のためスキップ']],
         ];
     }
 
-    return ['status' => 'idle', 'message' => '実行対象なし', 'jobs' => []];
+    try {
+        $result = scheduler_run_items_schedule(dmm_sync_service('items'), settings_get());
+        $jobStatus = scheduler_schedule_result_status($result);
+        $pdo->prepare('UPDATE api_schedules SET last_run_at = NOW(), lock_until = NULL WHERE id = ?')->execute([$schedule['id']]);
+        $job = array_merge(['schedule_type' => 'items', 'status' => $jobStatus], $result);
+        return [
+            'status' => $jobStatus === 'success' ? 'ran' : 'idle',
+            'schedule_type' => 'items',
+            'synced_count' => (int)($result['synced_count'] ?? 0),
+            'message' => scheduler_jobs_message([$job]),
+            'jobs' => [$job],
+        ];
+    } catch (Throwable $e) {
+        $pdo->prepare('UPDATE api_schedules SET last_run_at = NOW(), lock_until = NULL WHERE id = ?')->execute([$schedule['id']]);
+        return [
+            'status' => 'error',
+            'schedule_type' => 'items',
+            'synced_count' => 0,
+            'message' => '商品: ' . $e->getMessage(),
+            'jobs' => [['schedule_type' => 'items', 'status' => 'error', 'synced_count' => 0, 'message' => $e->getMessage()]],
+        ];
+    }
 }
 
 function scheduler_schedule_result_status(array $result): string
@@ -79,30 +67,17 @@ function scheduler_jobs_message(array $jobs): string
 {
     $messages = [];
     foreach ($jobs as $job) {
-        $type = (string)($job['schedule_type'] ?? '');
-        $label = match ($type) {
-            'items' => '商品',
-            'actresses' => '女優',
-            default => $type,
-        };
-        $message = (string)($job['message'] ?? '');
-        $messages[] = $label . ': ' . $message;
+        $messages[] = '商品: ' . (string)($job['message'] ?? '');
     }
     return implode(' / ', $messages);
 }
 
 function scheduler_run_schedule(array $schedule): array
 {
-    $settings = settings_get();
-    $type = (string)$schedule['schedule_type'];
-
-    return match ($type) {
-        'items' => scheduler_run_items_schedule(dmm_sync_service('items'), $settings),
-        'genres' => scheduler_run_master_schedule('genres', dmm_sync_service('genres'), $settings),
-        'actresses' => scheduler_run_master_schedule('actresses', dmm_sync_service('actresses'), $settings),
-        'series' => scheduler_run_master_schedule('series', dmm_sync_service('series'), $settings),
-        default => ['synced_count' => 0, 'message' => '未対応スケジュールです'],
-    };
+    if ((string)($schedule['schedule_type'] ?? '') !== 'items') {
+        return ['synced_count' => 0, 'message' => 'Comicsでは商品同期のみ対応しています'];
+    }
+    return scheduler_run_items_schedule(dmm_sync_service('items'), settings_get());
 }
 
 function scheduler_run_items_schedule(DmmSyncService $service, array $settings): array
@@ -132,20 +107,23 @@ function scheduler_run_items_schedule(DmmSyncService $service, array $settings):
     if ($lockStmt->rowCount() === 0) {
         return ['synced_count' => 0, 'message' => 'ロック取得失敗のためスキップ'];
     }
+
     $skip = scheduler_skip_missing_credentials($pdo, 'items');
     if ($skip !== null) {
         $pdo->prepare("UPDATE sync_job_state SET lock_until = NULL, updated_at = NOW() WHERE job_key = 'items'")->execute();
         return $skip;
     }
+
     $targets = $settings['catalog_targets'] ?? [];
     if (!is_array($targets) || $targets === []) {
         $targets = [[
             'site' => (string)($settings['site'] ?? 'FANZA'),
-            'service' => (string)($settings['service'] ?? 'digital'),
-            'floor' => (string)($settings['floor'] ?? 'videoa'),
-            'label' => '商品',
+            'service' => (string)($settings['service'] ?? 'ebook'),
+            'floor' => (string)($settings['floor'] ?? 'comic'),
+            'label' => 'コミック',
         ]];
     }
+
     $targetIndex = max(0, settings_int('item_sync_target_index', 0)) % count($targets);
     $target = $targets[$targetIndex];
     $targetKey = settings_catalog_target_key($target);
@@ -161,13 +139,14 @@ function scheduler_run_items_schedule(DmmSyncService $service, array $settings):
     try {
         $result = $service->syncItemsBatch(
             (string)($target['site'] ?? 'FANZA'),
-            (string)($target['service'] ?? 'digital'),
-            (string)($target['floor'] ?? 'videoa'),
+            (string)($target['service'] ?? 'ebook'),
+            (string)($target['floor'] ?? 'comic'),
             settings_allowed_item_sync_batch((int)($settings['item_sync_batch'] ?? 100)),
             $offset,
             $extraParams,
             $excludeKeywords
         );
+
         $nextOffset = max(1, (int)($result['next_offset'] ?? 1));
         if ($nextOffset > 50000) {
             $nextOffset = 101;
@@ -176,6 +155,7 @@ function scheduler_run_items_schedule(DmmSyncService $service, array $settings):
         $nextTargetIndex = ($targetIndex + 1) % count($targets);
         $targetLabel = trim((string)($target['label'] ?? $targetKey));
         $message = $targetLabel . ': ' . (string)($result['message'] ?? '商品を同期しました');
+
         $pdo->prepare("UPDATE sync_job_state SET next_offset = :next_offset, last_run_at = NOW(), last_success = 1, last_message = :message, lock_until = NULL, updated_at = NOW() WHERE job_key = 'items'")
             ->execute([':next_offset' => $nextOffset, ':message' => $message]);
         site_setting_set_many([
@@ -192,57 +172,6 @@ function scheduler_run_items_schedule(DmmSyncService $service, array $settings):
         throw $e;
     }
 }
-
-
-function scheduler_run_master_schedule(string $jobKey, DmmSyncService $service, array $settings): array
-{
-    $pdo = db();
-    scheduler_ensure_job_state_table($pdo);
-    scheduler_seed_job_state($pdo);
-    $lockUntil = date('Y-m-d H:i:s', time() + 55);
-    $lockStmt = $pdo->prepare('UPDATE sync_job_state SET lock_until = :lock_until WHERE job_key = :job_key AND (lock_until IS NULL OR lock_until < NOW())');
-    $lockStmt->execute([':lock_until' => $lockUntil, ':job_key' => $jobKey]);
-    if ($lockStmt->rowCount() === 0) {
-        return ['synced_count' => 0, 'message' => 'ロック取得失敗のためスキップ'];
-    }
-    $skip = scheduler_skip_missing_credentials($pdo, $jobKey);
-    if ($skip !== null) {
-        return $skip;
-    }
-
-    $stateStmt = $pdo->prepare('SELECT next_offset FROM sync_job_state WHERE job_key = :job_key LIMIT 1');
-    $stateStmt->execute([':job_key' => $jobKey]);
-    $offset = max(1, (int)$stateStmt->fetchColumn());
-
-    try {
-        $floorId = (string)($settings['master_floor_id'] ?? '43');
-        $count = match ($jobKey) {
-            'genres' => $service->syncGenres($floorId, null, 100, $offset),
-            'actresses' => $service->syncMaster('actress', null, $offset, 100),
-            'series' => $service->syncSeries($floorId, null, 100, $offset),
-            default => 0,
-        };
-        $nextOffset = $count < 100 ? 1 : $offset + 100;
-        if ($nextOffset > 50000) {
-            $nextOffset = 1;
-        }
-        $message = match ($jobKey) {
-            'genres' => 'ジャンルを同期しました',
-            'actresses' => '女優を同期しました',
-            'series' => 'シリーズを同期しました',
-            default => '同期しました',
-        };
-        $pdo->prepare('UPDATE sync_job_state SET next_offset = :next_offset, last_run_at = NOW(), last_success = 1, last_message = :message, lock_until = NULL, updated_at = NOW() WHERE job_key = :job_key')
-            ->execute([':next_offset' => $nextOffset, ':message' => $message, ':job_key' => $jobKey]);
-
-        return ['synced_count' => $count, 'message' => $message];
-    } catch (Throwable $e) {
-        $pdo->prepare('UPDATE sync_job_state SET last_run_at = NOW(), last_success = 0, last_message = :message, lock_until = NULL, updated_at = NOW() WHERE job_key = :job_key')
-            ->execute([':message' => mb_substr($e->getMessage(), 0, 1000), ':job_key' => $jobKey]);
-        throw $e;
-    }
-}
-
 
 function scheduler_skip_missing_credentials(PDO $pdo, string $jobKey): ?array
 {
@@ -294,17 +223,18 @@ function scheduler_apply_auto_settings(PDO $pdo): void
 {
     $enabled = settings_bool('item_sync_enabled', false) ? 1 : 0;
     $interval = max(1, settings_int('item_sync_interval_minutes', 60));
-    $pdo->prepare("UPDATE api_schedules SET interval_minutes = :interval, is_enabled = :enabled, updated_at = NOW() WHERE schedule_type IN ('items','actresses')")
+    $pdo->prepare("UPDATE api_schedules SET interval_minutes = :interval, is_enabled = :enabled, updated_at = NOW() WHERE schedule_type = 'items'")
         ->execute([':interval' => $interval, ':enabled' => $enabled]);
-    $pdo->prepare("UPDATE api_schedules SET is_enabled = 0, updated_at = NOW() WHERE schedule_type IN ('genres','series')")
-        ->execute();
+    $pdo->exec("UPDATE api_schedules SET is_enabled = 0, updated_at = NOW() WHERE schedule_type <> 'items'");
 }
 
 function scheduler_is_due(array $schedule): bool
 {
     $interval = max(1, (int)($schedule['interval_minutes'] ?? 60));
     $lastRun = isset($schedule['last_run_at']) ? strtotime((string)$schedule['last_run_at']) : false;
-    if ($lastRun === false || $lastRun <= 0) return true;
+    if ($lastRun === false || $lastRun <= 0) {
+        return true;
+    }
     return $lastRun <= (time() - ($interval * 60));
 }
 
@@ -340,24 +270,20 @@ function scheduler_ensure_columns(PDO $pdo, string $table, array $alterSqlByColu
 
 function scheduler_job_keys(): array
 {
-    return ['items', 'actresses'];
+    return ['items'];
 }
 
 function scheduler_seed_default_schedules(PDO $pdo): void
 {
-    foreach (scheduler_job_keys() as $type) {
-        $pdo->prepare('INSERT INTO api_schedules(schedule_type, interval_minutes, is_enabled, created_at, updated_at) VALUES(?, 60, 1, NOW(), NOW()) ON DUPLICATE KEY UPDATE updated_at = updated_at')->execute([$type]);
-    }
+    $pdo->prepare('INSERT INTO api_schedules(schedule_type, interval_minutes, is_enabled, created_at, updated_at) VALUES(?, 60, 1, NOW(), NOW()) ON DUPLICATE KEY UPDATE updated_at = updated_at')->execute(['items']);
+    $pdo->exec("UPDATE api_schedules SET is_enabled = 0, updated_at = NOW() WHERE schedule_type <> 'items'");
     scheduler_seed_job_state($pdo);
 }
 
 function scheduler_seed_job_state(PDO $pdo): void
 {
     scheduler_ensure_job_state_table($pdo);
-    foreach (scheduler_job_keys() as $jobKey) {
-        $pdo->prepare('INSERT INTO sync_job_state (job_key, next_offset, updated_at) VALUES (:job_key, 1, NOW()) ON DUPLICATE KEY UPDATE updated_at = updated_at')
-            ->execute([':job_key' => $jobKey]);
-    }
+    $pdo->prepare("INSERT INTO sync_job_state (job_key, next_offset, updated_at) VALUES ('items', 1, NOW()) ON DUPLICATE KEY UPDATE updated_at = updated_at")->execute();
 }
 
 function maybe_run_scheduled_jobs(): void
