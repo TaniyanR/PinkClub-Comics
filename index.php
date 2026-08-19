@@ -21,7 +21,11 @@ function comics_home_items(string $type, int $limit = 8): array
         $params[':floor_name'] = '%読み放題%';
     } else {
         $where[] = 'LOWER(COALESCE(i.floor_code, "")) = :floor_code';
+        $where[] = 'LOWER(COALESCE(i.service_code, "")) <> "unlimited_book"';
+        $where[] = 'LOWER(COALESCE(i.floor_code, "")) NOT IN ("unlimited", "unlimited_comic")';
+        $where[] = 'COALESCE(i.floor_name, "") NOT LIKE :unlimited_name';
         $params[':floor_code'] = strtolower($type);
+        $params[':unlimited_name'] = '%読み放題%';
     }
 
     try {
