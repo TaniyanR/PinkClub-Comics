@@ -11,22 +11,18 @@ $catalogs = [
     'comic' => [
         'label' => 'コミック',
         'floors' => ['comic'],
-        'services' => ['ebook'],
     ],
     'bl' => [
         'label' => 'BL',
         'floors' => ['bl'],
-        'services' => ['ebook'],
     ],
     'tl' => [
         'label' => 'TL',
         'floors' => ['tl'],
-        'services' => ['ebook'],
     ],
     'unlimited' => [
         'label' => '読み放題',
         'floors' => ['unlimited', 'unlimited_comic'],
-        'services' => ['ebook', 'unlimited_book'],
     ],
 ];
 if (!isset($catalogs[$type])) {
@@ -51,11 +47,8 @@ try {
         $params[$key] = strtolower((string)$floor);
     }
     if ($type === 'unlimited') {
-        foreach ($catalog['services'] as $index => $service) {
-            $key = ':service_' . $index;
-            $scopeParts[] = 'LOWER(COALESCE(i.service_code, "")) = ' . $key;
-            $params[$key] = strtolower((string)$service);
-        }
+        $scopeParts[] = 'LOWER(COALESCE(i.service_code, "")) = :unlimited_service';
+        $params[':unlimited_service'] = 'unlimited_book';
         $scopeParts[] = 'COALESCE(i.floor_name, "") LIKE :unlimited_name';
         $params[':unlimited_name'] = '%読み放題%';
     }
@@ -89,8 +82,12 @@ try {
 
 $pg = paginate($total, $page, $perPage);
 $title = $catalog['label'];
-$pageDescription = $catalog['label'] . 'の新着作品・人気作品を探せるPinkClub Comicsの作品一覧です。';
-$canonicalUrl = public_url('catalog.php') . '?' . http_build_query(['type' => $type] + ($page > 1 ? ['page' => $page] : []));
+$pageDescription = $catalog['label'] . 'の新着作品を表紙・作者・価格から探せるPinkClub Comicsの作品一覧です。';
+$canonicalQuery = ['type' => $type];
+if ($page > 1) {
+    $canonicalQuery['page'] = $page;
+}
+$canonicalUrl = public_url('catalog.php') . '?' . http_build_query($canonicalQuery);
 if ($page > 1) {
     $relPrev = public_url('catalog.php') . '?' . http_build_query(['type' => $type, 'page' => $page - 1]);
 }
