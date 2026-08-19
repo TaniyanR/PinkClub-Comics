@@ -9,8 +9,10 @@ if (!function_exists('pcf_comics_floor_label')) {
         $service = strtolower(trim((string)($item['service_code'] ?? '')));
         $floorName = trim((string)($item['floor_name'] ?? ''));
 
-        if ($floor === 'comic' || str_contains($floorName, 'コミック')) {
-            return 'コミック';
+        if (in_array($floor, ['unlimited', 'unlimited_comic'], true)
+            || $service === 'unlimited_book'
+            || str_contains($floorName, '読み放題')) {
+            return '読み放題';
         }
         if ($floor === 'bl' || preg_match('/(^|[^a-z])bl([^a-z]|$)/i', $floorName)) {
             return 'BL';
@@ -18,10 +20,8 @@ if (!function_exists('pcf_comics_floor_label')) {
         if ($floor === 'tl' || preg_match('/(^|[^a-z])tl([^a-z]|$)/i', $floorName)) {
             return 'TL';
         }
-        if (in_array($floor, ['unlimited', 'unlimited_comic'], true)
-            || $service === 'unlimited_book'
-            || str_contains($floorName, '読み放題')) {
-            return '読み放題';
+        if ($floor === 'comic' || str_contains($floorName, 'コミック')) {
+            return 'コミック';
         }
 
         return $floorName !== '' ? $floorName : 'コミック';
