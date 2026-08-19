@@ -23,19 +23,21 @@ if (!$author) {
 }
 
 try {
+    $authorDmmId = trim((string)($author['dmm_id'] ?? ''));
     $stmt = db()->prepare(
         'SELECT DISTINCT i.*
          FROM items i
          INNER JOIN item_authors ia ON ia.item_id = i.id
          WHERE ' . items_product_source_where('i') . '
            AND (
-             (COALESCE(:dmm_id, "") <> "" AND ia.dmm_id = :dmm_id)
+             (:dmm_present <> "" AND ia.dmm_id = :dmm_match)
              OR ia.author_name = :author_name
            )
          ORDER BY i.release_date DESC, i.id DESC
          LIMIT 120'
     );
-    $stmt->bindValue(':dmm_id', trim((string)($author['dmm_id'] ?? '')), PDO::PARAM_STR);
+    $stmt->bindValue(':dmm_present', $authorDmmId, PDO::PARAM_STR);
+    $stmt->bindValue(':dmm_match', $authorDmmId, PDO::PARAM_STR);
     $stmt->bindValue(':author_name', (string)($author['name'] ?? ''), PDO::PARAM_STR);
     $stmt->execute();
     $items = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
