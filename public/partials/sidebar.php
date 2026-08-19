@@ -15,7 +15,6 @@ $canRenderAd = function_exists('render_ad');
 $partnerLinks = [];
 $textRssSiteCount = null;
 $sitePostCount = null;
-$siteActressCount = null;
 $fixedPages = [];
 $defaultFixedPages = [
     ['slug' => 'about', 'title' => 'サイトについて', 'href' => public_url('page.php?slug=about')],
@@ -25,7 +24,6 @@ $defaultFixedPages = [
 
 $publicCounts = pcf_public_counts();
 $sitePostCount = $publicCounts['posts'];
-$siteActressCount = $publicCounts['actresses'];
 
 try {
     $stmt = db()->query("SELECT ps.id, ps.name, ps.url, COALESCE(ps.show_link, ps.is_enabled, 1) AS show_link FROM partner_sites ps WHERE COALESCE(ps.show_link, ps.is_enabled, 1) = 1 ORDER BY {$orderBy}");
@@ -84,7 +82,6 @@ if ($fixedPages === []) {
         <?php else: ?>
             <ul class="sidebar-links sidebar-links--pages">
                 <?php if ($sitePostCount !== null): ?><li><a style="color:#000;">公開作品数：<strong><?= e(number_format($sitePostCount)) ?></strong></a></li><?php endif; ?>
-                <?php if ($siteActressCount !== null): ?><li><a style="color:#000;">公開女優数：<strong><?= e(number_format($siteActressCount)) ?></strong></a></li><?php endif; ?>
                 <?php foreach ($fixedPages as $page): ?>
                     <?php $pageHref = trim((string)($page['href'] ?? '')); ?>
                     <?php
