@@ -8,15 +8,18 @@ require_once __DIR__ . '/../../lib/public_counts.php';
 
 $path = (string)parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 $searchQuery = trim((string)($_GET['q'] ?? ''));
+$currentType = strtolower(trim((string)($_GET['type'] ?? '')));
 
 $navItems = [
-    ['href' => public_url(''), 'label' => 'TOP'],
-    ['href' => public_url('items.php'), 'label' => '商品一覧'],
-    ['href' => public_url('actresses.php'), 'label' => '女優一覧'],
-    ['href' => public_url('genres.php'), 'label' => 'ジャンル一覧'],
-    ['href' => public_url('makers.php'), 'label' => 'メーカー一覧'],
-    ['href' => public_url('labels.php'), 'label' => 'レーベル一覧'],
-    ['href' => public_url('series_list.php'), 'label' => 'シリーズ一覧'],
+    ['href' => public_url(''), 'label' => 'TOP', 'type' => ''],
+    ['href' => public_url('catalog.php?type=comic'), 'label' => 'コミック', 'type' => 'comic'],
+    ['href' => public_url('catalog.php?type=bl'), 'label' => 'BL', 'type' => 'bl'],
+    ['href' => public_url('catalog.php?type=tl'), 'label' => 'TL', 'type' => 'tl'],
+    ['href' => public_url('catalog.php?type=unlimited'), 'label' => '読み放題', 'type' => 'unlimited'],
+    ['href' => public_url('authors.php'), 'label' => '作者一覧', 'type' => ''],
+    ['href' => public_url('genres.php'), 'label' => 'ジャンル一覧', 'type' => ''],
+    ['href' => public_url('series_list.php'), 'label' => 'シリーズ一覧', 'type' => ''],
+    ['href' => public_url('labels.php'), 'label' => 'レーベル一覧', 'type' => ''],
 ];
 $mobileMainItems = $navItems;
 $mobileInfoItems = [
@@ -25,11 +28,9 @@ $mobileInfoItems = [
     ['href' => public_url('page.php?slug=que'), 'label' => 'お問い合わせ'],
 ];
 $sitePostCount = null;
-$siteActressCount = null;
 
 $publicCounts = pcf_public_counts();
 $sitePostCount = $publicCounts['posts'];
-$siteActressCount = $publicCounts['actresses'];
 
 try {
     $stmt = db()->query('SELECT slug,title FROM fixed_pages WHERE is_published = 1 ORDER BY id ASC');
@@ -45,7 +46,7 @@ try {
         if (in_array($slug, $excludedSlugs, true) || in_array($title, $excludedTitles, true)) {
             continue;
         }
-        $navItems[] = ['href' => public_url('page.php?slug=' . $slug), 'label' => $title];
+        $navItems[] = ['href' => public_url('page.php?slug=' . $slug), 'label' => $title, 'type' => ''];
     }
 } catch (Throwable $e) {
 }
@@ -59,26 +60,31 @@ try {
             <?php endforeach; ?>
         </div>
         <div class="site-mobile-menu__group">
-            <?php if ($sitePostCount !== null): ?><a style="color:#000;">投稿数：<strong><?= e(number_format($sitePostCount)) ?></strong></a><?php endif; ?>
-            <?php if ($siteActressCount !== null): ?><a style="color:#000;">女優数：<strong><?= e(number_format($siteActressCount)) ?></strong></a><?php endif; ?>
+            <?php if ($sitePostCount !== null): ?><a style="color:#000;">作品数：<strong><?= e(number_format($sitePostCount)) ?></strong></a><?php endif; ?>
             <?php foreach ($mobileInfoItems as $item) : ?>
                 <a href="<?= e($item['href']) ?>"><?= e($item['label']) ?></a>
             <?php endforeach; ?>
         </div>
         <form class="site-mobile-menu__search" method="get" action="<?= e(public_url('search.php')) ?>">
-            <input class="site-search__input" type="search" name="q" value="<?= e($searchQuery) ?>" placeholder="商品検索" aria-label="商品検索">
+            <input class="site-search__input" type="search" name="q" value="<?= e($searchQuery) ?>" placeholder="作品・作者を検索" aria-label="作品・作者を検索">
             <button class="site-search__button" type="submit">検索</button>
         </form>
     </div>
 </details>
 <nav class="site-nav" aria-label="グローバルナビゲーション">
     <?php foreach ($navItems as $index => $item) : ?>
-        <?php $isActive = $path === parse_url($item['href'], PHP_URL_PATH); ?>
+        <?php
+        $itemPath = (string)parse_url($item['href'], PHP_URL_PATH);
+        $isActive = $path === $itemPath;
+        if (($item['type'] ?? '') !== '') {
+            $isActive = $isActive && $currentType === (string)$item['type'];
+        }
+        ?>
         <?php if ($index > 0): ?><span class="site-nav__sep" aria-hidden="true"> | </span><?php endif; ?>
         <a class="<?= $isActive ? 'is-active' : '' ?>" href="<?= e($item['href']) ?>"><?= e($item['label']) ?></a>
     <?php endforeach; ?>
     <form class="site-search" method="get" action="<?= e(public_url('search.php')) ?>">
-        <input class="site-search__input" type="search" name="q" value="<?= e($searchQuery) ?>" placeholder="商品検索" aria-label="商品検索">
+        <input class="site-search__input" type="search" name="q" value="<?= e($searchQuery) ?>" placeholder="作品・作者を検索" aria-label="作品・作者を検索">
         <button class="site-search__button" type="submit">検索</button>
     </form>
 </nav>

@@ -5,17 +5,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/../public/_bootstrap.php';
 
 $requestPath = (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
-
-/**
- * 想定外URLの吸収
- * - /admin/index.php/public... に来たら /admin/index.php に 301 で戻す
- * - /admin/index.php/xxxx のように index.php の後ろに余計なパスが付いたら 404
- */
 if ($requestPath !== '' && preg_match('#/admin/index\.php/public(?:/.*)?$#', $requestPath) === 1) {
     header('Location: ' . app_url('/admin/index.php'), true, 301);
     exit;
 }
-
 if ($requestPath !== '' && preg_match('#/admin/index\.php/(.+)$#', $requestPath) === 1) {
     http_response_code(404);
     exit('Not Found');
@@ -24,20 +17,24 @@ if ($requestPath !== '' && preg_match('#/admin/index\.php/(.+)$#', $requestPath)
 auth_require_admin();
 
 $title = 'ダッシュボード';
-$tables = ['items', 'actresses', 'genres', 'makers', 'series_master', 'authors', 'dmm_floors'];
+$tables = ['items', 'authors', 'genres', 'makers', 'series_master', 'dmm_floors'];
 $counts = [];
-foreach ($tables as $t) {
-    $counts[$t] = (int) db()->query("SELECT COUNT(*) FROM {$t}")->fetchColumn();
+foreach ($tables as $table) {
+    try {
+        $counts[$table] = (int)db()->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
+    } catch (Throwable) {
+        $counts[$table] = 0;
+    }
 }
 $labels = [
-    'items' => '商品',
-    'actresses' => '女優',
+    'items' => '作品',
+    'authors' => '作者',
     'genres' => 'ジャンル',
     'makers' => 'メーカー',
     'series_master' => 'シリーズ',
-    'authors' => '作者',
-    'dmm_floors' => 'フロア',
+    'dmm_floors' => 'APIフロア',
 ];
+
 $pvStats = [
     'today' => 0,
     'yesterday' => 0,
@@ -63,6 +60,7 @@ try {
     }
 } catch (Throwable $e) {
 }
+
 $errorStats = [
     'today' => 0,
     'last24' => 0,
@@ -88,6 +86,7 @@ try {
 } catch (Throwable $e) {
     $failedLogs = [];
 }
+
 $errorStatus = '正常';
 if ($latestError === null) {
     $errorStatus = 'データなし';
@@ -96,6 +95,7 @@ if ($latestError === null) {
 } elseif ($errorStats['last7'] > 0 || $errorStats['last3Months'] > 0) {
     $errorStatus = '注意';
 }
+
 $popularPages = [];
 try {
     $popularStmt = db()->query('SELECT i.id, i.content_id, i.title, COUNT(pv.id) AS access_count FROM page_views pv INNER JOIN items i ON i.id = pv.item_id WHERE pv.viewed_at >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH) GROUP BY i.id, i.content_id, i.title ORDER BY access_count DESC, i.id DESC LIMIT 5');
@@ -109,7 +109,7 @@ require __DIR__ . '/includes/header.php';
 <section class="admin-card admin-dashboard-hero">
   <p class="admin-dashboard-hero__eyebrow">Overview</p>
   <h1>ダッシュボード</h1>
-  <p class="admin-form-note">アクセス数と直近のエラー状況を中心に確認できます。</p>
+  <p class="admin-form-note">作品データ、アクセス数、直近のエラー状況を確認できます。</p>
 </section>
 
 <section class="admin-card admin-dashboard-section">
@@ -142,38 +142,38 @@ require __DIR__ . '/includes/header.php';
 <section class="admin-card admin-dashboard-section">
   <h2>直近エラーログ</h2>
   <?php if ($failedLogs): ?>
-  <table class="admin-table">
-    <tr><th>ID</th><th>種別</th><th>メッセージ</th><th>時刻</th></tr>
-    <?php foreach ($failedLogs as $log): ?>
-      <tr>
-        <td><?= e($log['id']) ?></td>
-        <td><?= e($log['sync_type']) ?></td>
-        <td><?= e($log['message']) ?></td>
-        <td><?= e($log['created_at']) ?></td>
-      </tr>
-    <?php endforeach; ?>
-  </table>
+    <table class="admin-table">
+      <tr><th>ID</th><th>種別</th><th>メッセージ</th><th>時刻</th></tr>
+      <?php foreach ($failedLogs as $log): ?>
+        <tr>
+          <td><?= e($log['id']) ?></td>
+          <td><?= e($log['sync_type']) ?></td>
+          <td><?= e($log['message']) ?></td>
+          <td><?= e($log['created_at']) ?></td>
+        </tr>
+      <?php endforeach; ?>
+    </table>
   <?php else: ?>
     <p>現在、直近のエラーはありません。</p>
   <?php endif; ?>
 </section>
 
 <section class="admin-card admin-dashboard-section">
-  <h2>人気ページ TOP5</h2>
+  <h2>人気作品 TOP5</h2>
   <?php if ($popularPages): ?>
-  <table class="admin-table">
-    <tr><th>商品</th><th>アクセス数</th></tr>
-    <?php foreach ($popularPages as $page): ?>
-      <tr><td><?= e((string)$page['title']) ?></td><td><?= e((string)$page['access_count']) ?></td></tr>
-    <?php endforeach; ?>
-  </table>
+    <table class="admin-table">
+      <tr><th>作品</th><th>アクセス数</th></tr>
+      <?php foreach ($popularPages as $page): ?>
+        <tr><td><?= e((string)$page['title']) ?></td><td><?= e((string)$page['access_count']) ?></td></tr>
+      <?php endforeach; ?>
+    </table>
   <?php else: ?>
-    <p>人気ページ表示はページ別アクセス集計の既存実装が要確認、または直近3ヶ月のデータがありません。</p>
+    <p>直近3ヶ月の作品別アクセスデータがありません。</p>
   <?php endif; ?>
 </section>
 
 <section class="admin-card admin-dashboard-section">
-  <h2>同期対象データ件数</h2>
+  <h2>登録データ件数</h2>
   <table class="admin-table">
     <tr><th>項目</th><th>件数</th></tr>
     <?php foreach ($counts as $key => $count): ?>

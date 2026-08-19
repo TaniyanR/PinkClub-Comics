@@ -29,10 +29,6 @@ function sitemap_product_where(string $alias): string
 }
 
 /**
- * Only expose URLs that their detail handlers can render as indexable pages.
- * Master tables contain historical/orphan rows, so listing every row creates
- * sitemap URLs which immediately return 404.
- *
  * @return array<int,array{from:string,path:string,changefreq:string,priority:string,where:string}>
  */
 function sitemap_sources(): array
@@ -50,10 +46,10 @@ function sitemap_sources(): array
     }
 
     $masterSources = [
-        'genres' => ['relation' => 'item_genres', 'path' => 'genre.php'],
-        'series_master' => ['relation' => 'item_series', 'path' => 'series_detail.php'],
-        'actresses' => ['relation' => 'item_actresses', 'path' => 'actress.php'],
-        'makers' => ['relation' => 'item_makers', 'path' => 'maker.php'],
+        'authors' => ['relation' => 'item_authors', 'path' => 'author.php', 'name_column' => 'author_name'],
+        'genres' => ['relation' => 'item_genres', 'path' => 'genre.php', 'name_column' => 'genre_name'],
+        'series_master' => ['relation' => 'item_series', 'path' => 'series_detail.php', 'name_column' => 'series_name'],
+        'makers' => ['relation' => 'item_makers', 'path' => 'maker.php', 'name_column' => 'maker_name'],
     ];
 
     foreach ($masterSources as $table => $config) {
@@ -70,9 +66,6 @@ function sitemap_sources(): array
             "entity.name NOT LIKE '%/%'",
         ];
 
-        if ($table === 'actresses') {
-            $where[] = "entity.dmm_id REGEXP '^[0-9]+$'";
-        }
         if ($table === 'series_master') {
             $redirectSeriesIds = array_keys(series_canonical_maker_redirects());
             if ($redirectSeriesIds !== []) {
@@ -84,23 +77,11 @@ function sitemap_sources(): array
         }
 
         if (db_column_exists($relation, 'item_id')) {
+            $nameColumn = (string)$config['name_column'];
             $where[] = 'EXISTS ('
                 . 'SELECT 1 FROM ' . $relation . ' relation_row '
                 . 'INNER JOIN items related_item ON related_item.id = relation_row.item_id '
-                . 'WHERE relation_row.dmm_id = entity.dmm_id '
-                . 'AND ' . sitemap_product_where('related_item')
-                . ')';
-        } else {
-            $legacyIdColumn = match ($table) {
-                'genres' => 'genre_id',
-                'series_master' => 'series_id',
-                'actresses' => 'actress_id',
-                'makers' => 'maker_id',
-            };
-            $where[] = 'EXISTS ('
-                . 'SELECT 1 FROM ' . $relation . ' relation_row '
-                . 'INNER JOIN items related_item ON related_item.content_id = relation_row.content_id '
-                . 'WHERE relation_row.' . $legacyIdColumn . ' = entity.id '
+                . 'WHERE (relation_row.dmm_id = entity.dmm_id OR relation_row.' . $nameColumn . ' = entity.name) '
                 . 'AND ' . sitemap_product_where('related_item')
                 . ')';
         }
@@ -170,8 +151,15 @@ function sitemap_emit_source(array $source, int $start, int &$remaining): int
 
 $perSitemap = 10000;
 $staticUrls = [
-    [public_url('index.php'), 'daily', '1.0'],
-    [public_url('items.php'), 'daily', '0.9'],
+    [rtrim(BASE_URL, '/') . '/', 'daily', '1.0'],
+    [public_url('catalog.php?type=comic'), 'daily', '0.9'],
+    [public_url('catalog.php?type=bl'), 'daily', '0.9'],
+    [public_url('catalog.php?type=tl'), 'daily', '0.9'],
+    [public_url('catalog.php?type=unlimited'), 'daily', '0.9'],
+    [public_url('authors.php'), 'weekly', '0.8'],
+    [public_url('genres.php'), 'weekly', '0.8'],
+    [public_url('series_list.php'), 'weekly', '0.8'],
+    [public_url('labels.php'), 'weekly', '0.7'],
 ];
 $sources = sitemap_sources();
 $totalUrls = count($staticUrls);

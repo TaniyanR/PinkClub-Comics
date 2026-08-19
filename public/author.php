@@ -3,98 +3,80 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/_bootstrap.php';
-require_once __DIR__ . '/partials/public_ui.php';
 require_once __DIR__ . '/../lib/repository.php';
+require_once __DIR__ . '/partials/public_ui.php';
 
 $id = (int)get('id', 0);
-$row = false;
+$author = false;
+$items = [];
+
 try {
-    if (db_table_exists('authors')) {
-        $stmt = db()->prepare('SELECT * FROM authors WHERE id = ?');
-        $stmt->execute([$id]);
-        $row = $stmt->fetch();
-    }
-} catch (Throwable) {
-    $row = false;
+    $stmt = db()->prepare('SELECT id, dmm_id, name, ruby FROM authors WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+    $author = $stmt->fetch(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    error_log('author fetch failed: ' . $e->getMessage());
 }
-if (!$row) {
+
+if (!$author) {
     require __DIR__ . '/404.php';
 }
 
-$list = [];
-if (db_table_exists('item_authors')) {
-    try {
-        $itemStmt = db()->prepare('SELECT items.* FROM items INNER JOIN item_authors ia ON items.content_id = ia.content_id WHERE ia.author_id = :id AND ' . items_product_source_where('items') . ' ORDER BY items.date_published DESC LIMIT 100');
-        $itemStmt->bindValue(':id', (int)$id, PDO::PARAM_INT);
-        $itemStmt->execute();
-        $list = $itemStmt->fetchAll() ?: [];
-    } catch (Throwable) {
-        $list = [];
-    }
-
-    if ($list === []) {
-        try {
-            $itemStmt = db()->prepare('SELECT items.* FROM items INNER JOIN item_authors ia ON items.id = ia.item_id WHERE ia.author_id = :id AND ' . items_product_source_where('items') . ' ORDER BY items.date_published DESC LIMIT 100');
-            $itemStmt->bindValue(':id', (int)$id, PDO::PARAM_INT);
-            $itemStmt->execute();
-            $list = $itemStmt->fetchAll() ?: [];
-        } catch (Throwable) {
-            $list = [];
-        }
-    }
-
-    if ($list === [] && trim((string)($row['dmm_id'] ?? '')) !== '') {
-        try {
-            $itemStmt = db()->prepare('SELECT items.* FROM items INNER JOIN item_authors ia ON ia.item_id = items.id WHERE ia.dmm_id = :dmm_id AND ' . items_product_source_where('items') . ' ORDER BY items.release_date DESC, items.id DESC LIMIT 100');
-            $itemStmt->bindValue(':dmm_id', (string)($row['dmm_id'] ?? ''), PDO::PARAM_STR);
-            $itemStmt->execute();
-            $list = $itemStmt->fetchAll() ?: [];
-        } catch (Throwable) {
-            $list = [];
-        }
-    }
-
-    if ($list === []) {
-        try {
-            $itemStmt = db()->prepare('SELECT items.* FROM items INNER JOIN item_authors ia ON ia.item_id = items.id WHERE ia.author_name = :name AND ' . items_product_source_where('items') . ' ORDER BY items.release_date DESC, items.id DESC LIMIT 100');
-            $itemStmt->bindValue(':name', (string)($row['name'] ?? ''), PDO::PARAM_STR);
-            $itemStmt->execute();
-            $list = $itemStmt->fetchAll() ?: [];
-        } catch (Throwable) {
-            $list = [];
-        }
-    }
+try {
+    $authorDmmId = trim((string)($author['dmm_id'] ?? ''));
+    $stmt = db()->prepare(
+        'SELECT DISTINCT i.*
+         FROM items i
+         INNER JOIN item_authors ia ON ia.item_id = i.id
+         WHERE ' . items_product_source_where('i') . '
+           AND (
+             (:dmm_present <> "" AND ia.dmm_id = :dmm_match)
+             OR ia.author_name = :author_name
+           )
+         ORDER BY i.release_date DESC, i.id DESC
+         LIMIT 120'
+    );
+    $stmt->bindValue(':dmm_present', $authorDmmId, PDO::PARAM_STR);
+    $stmt->bindValue(':dmm_match', $authorDmmId, PDO::PARAM_STR);
+    $stmt->bindValue(':author_name', (string)($author['name'] ?? ''), PDO::PARAM_STR);
+    $stmt->execute();
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+} catch (Throwable $e) {
+    error_log('author items failed: ' . $e->getMessage());
+    $items = [];
 }
 
-$list = dedupe_items_by_key($list);
-
-$oldestItem = pcf_pick_oldest_item($list);
-$oldestImage = pcf_item_image(is_array($oldestItem) ? $oldestItem : []);
-
-$title = (string)($row['name'] ?? '作者詳細');
+$items = dedupe_items_by_key($items);
+$title = (string)($author['name'] ?? '作者詳細');
+$pageDescription = $title . 'のコミック・BL・TL・読み放題作品一覧です。';
+$canonicalUrl = public_url('author.php?id=' . (int)$author['id']);
 require __DIR__ . '/partials/header.php';
 ?>
 <?php pcf_render_breadcrumbs([
     ['label' => 'トップ', 'url' => public_url('index.php')],
-    ['label' => (string)($row['name'] ?? '作者詳細')],
+    ['label' => '作者一覧', 'url' => public_url('authors.php')],
+    ['label' => $title],
 ]); ?>
 
 <section class="pcf-topic-head">
-  <img class="pcf-topic-head__image" src="<?= e($oldestImage) ?>" alt="<?= e((string)($row['name'] ?? '')) ?>">
   <div>
-    <h1 class="pcf-hero__title"><?= e((string)($row['name'] ?? '作者詳細')) ?></h1>
-    <?php if (!empty($row['ruby'])): ?><p class="pcf-list-card__meta">読み: <?= e((string)$row['ruby']) ?></p><?php endif; ?>
-    <p class="pcf-list-card__meta">関連作品: <?= e((string)count($list)) ?>件</p>
+    <h1 class="pcf-hero__title"><?= e($title) ?></h1>
+    <?php if (trim((string)($author['ruby'] ?? '')) !== ''): ?>
+      <p class="pcf-list-card__meta">読み：<?= e((string)$author['ruby']) ?></p>
+    <?php endif; ?>
+    <p class="pcf-list-card__meta">関連作品：<?= e(number_format(count($items))) ?>件</p>
   </div>
 </section>
 
-<h2 class="pcf-section-title">関連商品</h2>
-<?php if ($list !== []): ?>
-  <section class="pcf-related-grid">
-    <?php foreach ($list as $item): pcf_render_item_card(is_array($item) ? $item : []); endforeach; ?>
+<h2 class="pcf-section-title"><?= e($title) ?>の作品</h2>
+<?php if ($items !== []): ?>
+  <section class="pcf-related-grid pcf-comics-catalog-grid">
+    <?php foreach ($items as $item): ?>
+      <?php pcf_render_item_card(is_array($item) ? $item : [], 200, true); ?>
+    <?php endforeach; ?>
   </section>
 <?php else: ?>
-  <?php pcf_render_empty('この作者の関連商品はまだありません。'); ?>
+  <?php pcf_render_empty('この作者の作品はまだありません。'); ?>
 <?php endif; ?>
 
 <?php require __DIR__ . '/partials/footer.php'; ?>
