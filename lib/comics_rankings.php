@@ -30,7 +30,7 @@ function pcf_comics_scoped_ranking(string $scopeType, string $scopeValue, string
         return [];
     }
 
-    $cacheKey = 'comics.ranking.v2.' . hash('sha256', $scopeType . '|' . mb_strtolower($scopeValue, 'UTF-8') . '|' . $period . '|' . $limit);
+    $cacheKey = 'comics.ranking.v3.' . hash('sha256', $scopeType . '|' . mb_strtolower($scopeValue, 'UTF-8') . '|' . $period . '|' . $limit);
     try {
         $cached = json_decode((string)(setting_get($cacheKey, '') ?? ''), true);
         if (is_array($cached)
@@ -79,7 +79,10 @@ function pcf_comics_scoped_ranking(string $scopeType, string $scopeValue, string
                 OR COALESCE(i.floor_name, "") LIKE "%読み放題%"
             ) ';
         } else {
-            $scopeSql = ' AND LOWER(COALESCE(i.floor_code, "")) = :scope_floor ';
+            $scopeSql = ' AND LOWER(COALESCE(i.floor_code, "")) = :scope_floor
+                         AND LOWER(COALESCE(i.service_code, "")) <> "unlimited_book"
+                         AND LOWER(COALESCE(i.floor_code, "")) NOT IN ("unlimited", "unlimited_comic")
+                         AND COALESCE(i.floor_name, "") NOT LIKE "%読み放題%" ';
             $params[':scope_floor'] = $normalized;
         }
     }
