@@ -40,23 +40,27 @@ function pcf_comics_scoped_ranking(string $scopeType, string $scopeValue, string
 
     $joins = '';
     $scopeSql = '';
+    $periodStart = pcf_comics_ranking_period_start($period);
     $params = [
-        ':page_view_from' => pcf_comics_ranking_period_start($period),
-        ':out_click_from' => pcf_comics_ranking_period_start($period),
+        ':page_view_from' => $periodStart,
+        ':out_click_from' => $periodStart,
     ];
 
     if ($scopeType === 'author') {
         $joins = ' INNER JOIN item_authors scope_relation ON scope_relation.item_id = i.id ';
-        $scopeSql = ' AND (scope_relation.dmm_id = :scope_value OR scope_relation.author_name = :scope_value) ';
-        $params[':scope_value'] = $scopeValue;
+        $scopeSql = ' AND (scope_relation.dmm_id = :scope_dmm OR scope_relation.author_name = :scope_name) ';
+        $params[':scope_dmm'] = $scopeValue;
+        $params[':scope_name'] = $scopeValue;
     } elseif ($scopeType === 'genre') {
         $joins = ' INNER JOIN item_genres scope_relation ON scope_relation.item_id = i.id ';
-        $scopeSql = ' AND (scope_relation.dmm_id = :scope_value OR scope_relation.genre_name = :scope_value) ';
-        $params[':scope_value'] = $scopeValue;
+        $scopeSql = ' AND (scope_relation.dmm_id = :scope_dmm OR scope_relation.genre_name = :scope_name) ';
+        $params[':scope_dmm'] = $scopeValue;
+        $params[':scope_name'] = $scopeValue;
     } elseif ($scopeType === 'series') {
         $joins = ' INNER JOIN item_series scope_relation ON scope_relation.item_id = i.id ';
-        $scopeSql = ' AND (scope_relation.dmm_id = :scope_value OR scope_relation.series_name = :scope_value) ';
-        $params[':scope_value'] = $scopeValue;
+        $scopeSql = ' AND (scope_relation.dmm_id = :scope_dmm OR scope_relation.series_name = :scope_name) ';
+        $params[':scope_dmm'] = $scopeValue;
+        $params[':scope_name'] = $scopeValue;
     } else {
         $normalized = strtolower($scopeValue);
         if ($normalized === 'unlimited') {
@@ -66,8 +70,8 @@ function pcf_comics_scoped_ranking(string $scopeType, string $scopeValue, string
                 OR COALESCE(i.floor_name, "") LIKE "%読み放題%"
             ) ';
         } else {
-            $scopeSql = ' AND LOWER(COALESCE(i.floor_code, "")) = :scope_value ';
-            $params[':scope_value'] = $normalized;
+            $scopeSql = ' AND LOWER(COALESCE(i.floor_code, "")) = :scope_floor ';
+            $params[':scope_floor'] = $normalized;
         }
     }
 
