@@ -6,6 +6,7 @@ require_once __DIR__ . '/../lib/bootstrap.php';
 require_once __DIR__ . '/../lib/access_analytics.php';
 require_once __DIR__ . '/../lib/crawler_guard.php';
 require_once __DIR__ . '/../lib/public_page_cache.php';
+require_once __DIR__ . '/partials/comics_ui.php';
 
 pcf_crawler_guard_check();
 
@@ -13,6 +14,7 @@ $publicScriptName = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
 $longCachePublicPages = [
     'index.php',
     'items.php',
+    'catalog.php',
     'item.php',
     'search.php',
     'actresses.php',
@@ -39,6 +41,7 @@ pcf_public_page_cache_start($publicPageCacheTtl);
 $readOnlyPublicPages = [
     'index.php',
     'items.php',
+    'catalog.php',
     'item.php',
     'search.php',
     'actresses.php',
