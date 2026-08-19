@@ -42,6 +42,12 @@ try {
     }
 
     $where[] = '(' . implode(' OR ', $scopeParts) . ')';
+    if ($type !== 'unlimited') {
+        $where[] = 'LOWER(COALESCE(i.service_code, "")) <> "unlimited_book"';
+        $where[] = 'LOWER(COALESCE(i.floor_code, "")) NOT IN ("unlimited", "unlimited_comic")';
+        $where[] = 'COALESCE(i.floor_name, "") NOT LIKE :exclude_unlimited_name';
+        $params[':exclude_unlimited_name'] = '%読み放題%';
+    }
     $whereSql = implode(' AND ', $where);
 
     $countStmt = db()->prepare('SELECT COUNT(*) FROM items i WHERE ' . $whereSql);
